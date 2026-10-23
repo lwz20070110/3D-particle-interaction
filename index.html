@@ -1,0 +1,165 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>粒子星云 - 手势互动</title>
+  <script>
+    // Load each dependency from a second CDN if the primary source is unavailable.
+    window.loadParticleAsset = (sources) => new Promise((resolve, reject) => {
+      let index = 0;
+      const tryNext = () => {
+        if (index === sources.length) { reject(new Error('all sources unavailable')); return; }
+        const script = document.createElement('script');
+        script.src = sources[index++];
+        script.onload = resolve;
+        script.onerror = () => { script.remove(); tryNext(); };
+        document.head.appendChild(script);
+      };
+      tryNext();
+    });
+    window.particleDependencies = Promise.all([
+      loadParticleAsset(['https://cdn.jsdelivr.net/npm/three@0.160.1/build/three.min.js','https://unpkg.com/three@0.160.1/build/three.min.js']),
+      loadParticleAsset(['https://cdn.jsdelivr.net/npm/@mediapipe/camera_utils/camera_utils.js','https://unpkg.com/@mediapipe/camera_utils/camera_utils.js']),
+      loadParticleAsset(['https://cdn.jsdelivr.net/npm/@mediapipe/hands/hands.js','https://unpkg.com/@mediapipe/hands/hands.js'])
+    ]).then(() => document.dispatchEvent(new Event('particle-dependencies-ready')))
+      .catch(() => {
+        const showError = () => {
+          const status = document.getElementById('cameraStatus');
+          const label = document.getElementById('gestureLabel');
+          if (status) status.textContent = '粒子库加载失败，请检查网络';
+          if (label) label.textContent = '无法加载 Three.js / MediaPipe';
+        };
+        document.readyState === 'loading' ? document.addEventListener('DOMContentLoaded', showError) : showError();
+      });
+  </script>
+  <style>
+    :root { color-scheme: dark; --ink:#eef8ff; --muted:#92a5b3; --glass:rgba(8,17,27,.72); --line:rgba(179,222,241,.15); --accent:#71e4e1; }
+    * { box-sizing:border-box; }
+    body { margin:0; overflow:hidden; background:#03070c; color:var(--ink); font-family:Inter,"Microsoft YaHei",system-ui,sans-serif; }
+    canvas#scene { display:block; width:100vw; height:100vh; }
+    #handVideo { position:fixed; right:20px; bottom:20px; width:112px; height:84px; object-fit:cover; opacity:0; transform:scaleX(-1); border-radius:5px; pointer-events:none; transition:opacity .35s; }
+    #handVideo.ready { opacity:.35; }
+    .topbar { position:fixed; inset:0 0 auto; height:74px; display:flex; align-items:center; justify-content:space-between; padding:0 28px; background:linear-gradient(to bottom,rgba(2,6,11,.75),transparent); pointer-events:none; }
+    .brand { display:flex; align-items:center; gap:12px; }
+    .mark { width:29px; height:29px; position:relative; }
+    .mark:before,.mark:after { content:""; position:absolute; inset:5px; border:1px solid var(--accent); border-radius:50%; }
+    .mark:after { inset:0; border-color:rgba(113,228,225,.32); }
+    h1 { font-size:15px; letter-spacing:0; margin:0; font-weight:600; }
+    .sub { display:block; margin-top:3px; font-size:11px; color:var(--muted); }
+    .status { font-size:12px; color:var(--muted); display:flex; align-items:center; gap:8px; }
+    .dot { width:7px; height:7px; border-radius:50%; background:#55616a; transition:.2s; }
+    .dot.live { background:#79f5c7; box-shadow:0 0 13px #79f5c7; }
+    .panel { position:fixed; left:24px; bottom:24px; width:min(338px,calc(100vw - 48px)); padding:16px; background:var(--glass); border:1px solid var(--line); border-radius:8px; backdrop-filter:blur(18px); box-shadow:0 18px 50px rgba(0,0,0,.25); }
+    .panel-head { display:flex; justify-content:space-between; align-items:baseline; margin-bottom:13px; }
+    .panel-title { margin:0; font-weight:600; font-size:13px; }
+    .count { font-family:ui-monospace,monospace; font-size:11px; color:var(--accent); }
+    .models { display:grid; grid-template-columns:repeat(4,1fr); gap:6px; margin-bottom:13px; }
+    .model { min-height:34px; background:rgba(255,255,255,.035); border:1px solid transparent; color:#b9c9d2; border-radius:5px; cursor:pointer; font:12px inherit; transition:.18s; }
+    .model:hover { color:#fff; background:rgba(255,255,255,.08); }
+    .model.active { color:var(--ink); border-color:rgba(113,228,225,.63); background:rgba(113,228,225,.13); }
+    .controls { display:grid; grid-template-columns:1fr 1fr; gap:10px 14px; padding-top:12px; border-top:1px solid var(--line); }
+    label { display:block; color:var(--muted); font-size:11px; }
+    input[type="range"] { width:100%; margin:7px 0 0; accent-color:var(--accent); }
+    input[type="color"] { width:100%; height:25px; margin-top:7px; padding:0; border:0; background:transparent; cursor:pointer; }
+    .footer { grid-column:1/-1; display:flex; align-items:center; justify-content:space-between; margin-top:2px; font-size:10px; color:#70818d; }
+    .actions { position:fixed; right:24px; top:24px; display:flex; gap:8px; }
+    .icon-btn { width:38px; height:38px; display:grid; place-items:center; color:#cfe2eb; background:rgba(8,17,27,.64); border:1px solid var(--line); border-radius:6px; cursor:pointer; font-size:18px; line-height:1; transition:.2s; }
+    .icon-btn:hover { color:#fff; border-color:rgba(113,228,225,.55); background:rgba(113,228,225,.1); }
+    .hint { position:fixed; left:50%; bottom:27px; transform:translateX(-50%); padding:8px 12px; max-width:calc(100vw - 420px); color:#9eb4be; text-align:center; font-size:12px; background:rgba(4,11,17,.46); border-radius:5px; pointer-events:none; transition:opacity .4s; }
+    @media (max-width:680px) { .topbar{padding:0 18px;height:62px}.panel{left:12px;bottom:12px;width:calc(100vw - 24px)}.actions{right:14px;top:14px}.hint{display:none}.status{display:none}.models{grid-template-columns:repeat(4,1fr)} }
+  </style>
+</head>
+<body>
+  <canvas id="scene" aria-label="实时手势互动粒子系统"></canvas>
+  <video id="handVideo" playsinline muted></video>
+  <header class="topbar">
+    <div class="brand"><span class="mark"></span><div><h1>粒子星云</h1><span class="sub">GESTURE PARTICLE STUDIO</span></div></div>
+    <div class="status"><span class="dot" id="cameraDot"></span><span id="cameraStatus">正在连接摄像头</span></div>
+  </header>
+  <div class="actions">
+    <button class="icon-btn" id="toggleCamera" aria-label="切换摄像头" title="切换摄像头">◉</button>
+    <button class="icon-btn" id="fullscreen" aria-label="全屏" title="全屏">⛶</button>
+  </div>
+  <aside class="panel">
+    <div class="panel-head"><p class="panel-title">形态库</p><span class="count">24,000 POINTS</span></div>
+    <div class="models" id="models">
+      <button class="model active" data-shape="heart">爱心</button><button class="model" data-shape="flower">花朵</button><button class="model" data-shape="saturn">土星</button><button class="model" data-shape="fireworks">烟花</button>
+      <button class="model" data-shape="earth">地球</button><button class="model" data-shape="landscape">千里江山</button><button class="model" data-shape="cereus">昙花</button><button class="model" data-shape="nebula">星云</button>
+    </div>
+    <div class="controls">
+      <label>粒子颜色<input id="color" type="color" value="#79e8ff" aria-label="粒子颜色"></label>
+      <label>粒子尺寸<input id="size" type="range" min="1" max="7" step=".1" value="2.3" aria-label="粒子尺寸"></label>
+      <label>基础缩放<input id="spread" type="range" min=".5" max="2.5" step=".01" value="1" aria-label="基础缩放"></label>
+      <label>动态强度<input id="energy" type="range" min=".2" max="2" step=".01" value="1" aria-label="动态强度"></label>
+      <div class="footer"><span id="gestureLabel">手势：准备中</span><span>按住拖动可模拟</span></div>
+    </div>
+  </aside>
+  <div class="hint">张开手掌扩散 · 捏合缩放 · 食指摇摆旋转 · 远近推进</div>
+  <script>
+  document.addEventListener('particle-dependencies-ready', () => {
+  (() => {
+    const N = 24000, canvas = document.getElementById('scene'), video = document.getElementById('handVideo');
+    const renderer = new THREE.WebGLRenderer({canvas, antialias:true, alpha:false, powerPreference:'high-performance'});
+    renderer.setPixelRatio(Math.min(devicePixelRatio, 2)); renderer.setSize(innerWidth, innerHeight); renderer.setClearColor(0x03070c, 1);
+    const scene = new THREE.Scene(); scene.fog = new THREE.FogExp2(0x03070c, .055);
+    const camera = new THREE.PerspectiveCamera(52, innerWidth/innerHeight, .1, 100); camera.position.z = 15;
+    const group = new THREE.Group(); scene.add(group);
+    const positions = new Float32Array(N*3), target = new Float32Array(N*3), base = new Float32Array(N*3), phase = new Float32Array(N), seeds = new Float32Array(N);
+    for(let i=0;i<N;i++){ phase[i]=Math.random()*Math.PI*2; seeds[i]=Math.random(); }
+    const geo = new THREE.BufferGeometry(); geo.setAttribute('position', new THREE.BufferAttribute(positions,3));
+    const material = new THREE.ShaderMaterial({ transparent:true, depthWrite:false, blending:THREE.AdditiveBlending, uniforms:{uColor:{value:new THREE.Color('#79e8ff')},uSize:{value:2.3},uTime:{value:0},uEnergy:{value:1}}, vertexShader:`attribute float a; uniform float uSize,uTime,uEnergy; varying float vA; void main(){ vec3 p=position; float w=sin(uTime*.9+a*13.)*.035*uEnergy; p+=normalize(p+vec3(.01))*w; vec4 mv=modelViewMatrix*vec4(p,1.); gl_PointSize=uSize*(105./-mv.z); gl_Position=projectionMatrix*mv; vA=.45+fract(a*37.)*.55; }`, fragmentShader:`uniform vec3 uColor; varying float vA; void main(){ float d=length(gl_PointCoord-.5); float a=smoothstep(.5,.02,d)*vA; gl_FragColor=vec4(uColor,a); }` });
+    geo.setAttribute('a', new THREE.BufferAttribute(seeds,1)); const particles = new THREE.Points(geo,material); group.add(particles);
+    const state = { shape:'heart', spread:1, gestureSpread:1, pinch:1, rotate:0, depth:0, energy:1, mouse:false, mx:0, my:0, hasHand:false, lastX:.5 };
+    const V = (x,y,z,i) => { target[i*3]=x; target[i*3+1]=y; target[i*3+2]=z; };
+    const jitter = () => (Math.random()-.5)*.24;
+    function build(shape){
+      for(let i=0;i<N;i++){
+        const r=Math.sqrt(Math.random()), a=Math.random()*Math.PI*2, q=seeds[i], j=jitter(); let x,y,z;
+        if(shape==='heart'){ const t=a; x=3.7*Math.pow(Math.sin(t),3)*r; y=(2.9*Math.cos(t)-1.25*Math.cos(2*t)-.55*Math.cos(3*t)-.25*Math.cos(4*t))*r+.25; z=j*2.1; }
+        else if(shape==='flower'||shape==='cereus'){ const petals=shape==='cereus'?9:6, rr=shape==='cereus'?(1.2+2.7*Math.pow(Math.abs(Math.sin(petals*a/2)),.45))*r:(1+3*Math.abs(Math.cos(petals*a/2))*r); x=rr*Math.cos(a); y=rr*Math.sin(a); z=(shape==='cereus'?Math.sin(a*petals)*.75:Math.cos(a*petals)*.42)*(1-r)+j; }
+        else if(shape==='saturn'){ if(q<.62){ const u=Math.random()*2-1, th=a, sr=Math.sqrt(1-u*u)*2.1; x=sr*Math.cos(th);y=u*2.1;z=sr*Math.sin(th); }else{ const rr=2.9+Math.random()*1.8; x=rr*Math.cos(a);y=j*.75;z=rr*Math.sin(a); } }
+        else if(shape==='fireworks'){ const burst=Math.floor(q*9), ba=burst/9*Math.PI*2; const el=(burst%3-1)*.7, rr=Math.pow(Math.random(),.42)*4.6; x=Math.cos(ba)*rr+j; y=Math.sin(ba)*rr+el+j; z=(Math.random()-.5)*rr*.7; }
+        else if(shape==='earth'){ const u=Math.random()*2-1, th=a, sr=Math.sqrt(1-u*u)*3.1; x=sr*Math.cos(th); y=u*3.1; z=sr*Math.sin(th); }
+        else if(shape==='landscape'){ x=(Math.random()-.5)*9; const peaks=Math.sin(x*1.55)*1.1+Math.sin(x*.52+1)*1.25+Math.sin(x*3.4)*.33; y=peaks+(Math.random()-.5)*1.5; z=(Math.random()-.5)*2.1; }
+        else { const arm=Math.floor(q*5), rr=Math.pow(Math.random(),.45)*4.6, th=a+arm*Math.PI*2/5+rr*.65; x=Math.cos(th)*rr; y=Math.sin(th)*rr; z=(Math.random()-.5)*(1.8+rr*.35); }
+        V(x,y,z,i);
+      }
+      base.set(target);
+    }
+    build('heart');
+    function selectShape(name){ state.shape=name; build(name); document.querySelectorAll('.model').forEach(b=>b.classList.toggle('active',b.dataset.shape===name)); }
+    document.getElementById('models').addEventListener('click', e=>{const b=e.target.closest('.model');if(b)selectShape(b.dataset.shape)});
+    document.getElementById('color').addEventListener('input', e=>material.uniforms.uColor.value.set(e.target.value));
+    document.getElementById('size').addEventListener('input', e=>material.uniforms.uSize.value=+e.target.value);
+    document.getElementById('spread').addEventListener('input', e=>state.spread=+e.target.value);
+    document.getElementById('energy').addEventListener('input', e=>state.energy=+e.target.value);
+    const gLabel=document.getElementById('gestureLabel'), dot=document.getElementById('cameraDot'), cStatus=document.getElementById('cameraStatus');
+    let handOn=true;
+    document.getElementById('toggleCamera').onclick=()=>{handOn=!handOn; if(!handOn){video.classList.remove('ready');gLabel.textContent='手势：已暂停';}else startHands();};
+    document.getElementById('fullscreen').onclick=()=>document.fullscreenElement?document.exitFullscreen():document.documentElement.requestFullscreen();
+    function dist(a,b){return Math.hypot(a.x-b.x,a.y-b.y);}
+    function onHand(results){ if(!handOn)return; const h=results.multiHandLandmarks&&results.multiHandLandmarks[0]; if(!h){state.hasHand=false;gLabel.textContent='手势：未检测到手';return;}
+      state.hasHand=true; video.classList.add('ready'); dot.classList.add('live'); cStatus.textContent='手势追踪中';
+      const palm=Math.max(.03,dist(h[0],h[9])); const open=(dist(h[4],h[20])+dist(h[8],h[12]))/(palm*3.25); const pinch=dist(h[4],h[8])/palm;
+      state.gestureSpread=THREE.MathUtils.clamp(.45+open*1.45,.48,2.15); state.pinch=THREE.MathUtils.clamp(.62+pinch*.78,.55,1.75);
+      const x=h[8].x, velocity=x-state.lastX; state.lastX=x; state.rotate=THREE.MathUtils.lerp(state.rotate,THREE.MathUtils.clamp(velocity*7,-.26,.26),.25); state.depth=THREE.MathUtils.lerp(state.depth,THREE.MathUtils.clamp((palm-.12)*18,-1.8,2.5),.14);
+      gLabel.textContent=open<.55?'手势：聚合':pinch<.55?'手势：捏合缩放':'手势：扩散旋转';
+    }
+    let hands, mpCamera;
+    function startHands(){ if(hands||!handOn)return; cStatus.textContent='请求摄像头权限'; hands=new Hands({locateFile:f=>`https://cdn.jsdelivr.net/npm/@mediapipe/hands/${f}`}); hands.setOptions({maxNumHands:1,modelComplexity:1,minDetectionConfidence:.62,minTrackingConfidence:.58}); hands.onResults(onHand);
+      navigator.mediaDevices&&navigator.mediaDevices.getUserMedia({video:{width:640,height:480,facingMode:'user'}}).then(stream=>{video.srcObject=stream;video.play();mpCamera=new Camera(video,{onFrame:async()=>{if(handOn)await hands.send({image:video})},width:640,height:480});mpCamera.start();}).catch(()=>{cStatus.textContent='摄像头不可用 · 鼠标模拟';gLabel.textContent='手势：鼠标控制';}); }
+    startHands();
+    addEventListener('pointerdown',e=>{state.mouse=true;state.mx=e.clientX;state.my=e.clientY}); addEventListener('pointerup',()=>state.mouse=false); addEventListener('pointermove',e=>{if(!state.mouse)return;const dx=e.clientX-state.mx,dy=e.clientY-state.my;state.mx=e.clientX;state.my=e.clientY;state.rotate=dx*.008;state.gestureSpread=THREE.MathUtils.clamp(state.gestureSpread-dy*.006,.45,2.2);gLabel.textContent='手势：鼠标模拟';});
+    addEventListener('wheel',e=>{state.pinch=THREE.MathUtils.clamp(state.pinch-e.deltaY*.001,.55,1.75)},{passive:true});
+    addEventListener('resize',()=>{camera.aspect=innerWidth/innerHeight;camera.updateProjectionMatrix();renderer.setSize(innerWidth,innerHeight)});
+    const clock=new THREE.Clock();
+    function tick(){ const time=clock.getElapsedTime(), scale=state.spread*state.gestureSpread*state.pinch; material.uniforms.uTime.value=time; material.uniforms.uEnergy.value=state.energy;
+      const pos=geo.attributes.position.array, e=state.energy; for(let i=0;i<N;i++){const k=i*3, wave=Math.sin(time*1.4+phase[i])*0.03*e;pos[k]+=(base[k]*scale+wave-pos[k])*.078;pos[k+1]+=(base[k+1]*scale+wave-pos[k+1])*.078;pos[k+2]+=(base[k+2]*scale+wave-pos[k+2])*.078;} geo.attributes.position.needsUpdate=true;
+      group.rotation.y+=state.rotate*.038; group.rotation.y+=Math.sin(time*.18)*.0007; group.rotation.x=THREE.MathUtils.lerp(group.rotation.x,Math.sin(time*.22)*.08,.04); camera.position.z=THREE.MathUtils.lerp(camera.position.z,15-state.depth, .055); renderer.render(scene,camera);requestAnimationFrame(tick); }
+    tick();
+  })();
+  });
+  </script>
+</body>
+</html>
