@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <title>粒子星云 - 手势互动</title>
+  <title>圣诞树粒子 - 手势互动</title>
   <script>
     // Load each dependency from a second CDN if the primary source is unavailable.
     window.loadParticleAsset = (sources) => new Promise((resolve, reject) => {
@@ -74,7 +74,7 @@
   <canvas id="scene" aria-label="实时手势互动粒子系统"></canvas>
   <video id="handVideo" playsinline muted></video>
   <header class="topbar">
-    <div class="brand"><span class="mark"></span><div><h1>粒子星云</h1><span class="sub">GESTURE PARTICLE STUDIO</span></div></div>
+    <div class="brand"><span class="mark"></span><div><h1>圣诞树粒子</h1><span class="sub">GESTURE PARTICLE STUDIO</span></div></div>
     <div class="status"><span class="dot" id="cameraDot"></span><span id="cameraStatus">正在连接摄像头</span></div>
   </header>
   <div class="actions">
@@ -84,11 +84,12 @@
   <aside class="panel">
     <div class="panel-head"><p class="panel-title">形态库</p><span class="count">24,000 POINTS</span></div>
     <div class="models" id="models">
-      <button class="model active" data-shape="heart">爱心</button><button class="model" data-shape="flower">花朵</button><button class="model" data-shape="saturn">土星</button><button class="model" data-shape="fireworks">烟花</button>
+      <button class="model active" data-shape="tree">圣诞树</button><button class="model" data-shape="heart">爱心</button><button class="model" data-shape="flower">花朵</button><button class="model" data-shape="saturn">土星</button>
       <button class="model" data-shape="earth">地球</button><button class="model" data-shape="landscape">千里江山</button><button class="model" data-shape="cereus">昙花</button><button class="model" data-shape="nebula">星云</button>
+      <button class="model" data-shape="fireworks">烟花</button>
     </div>
     <div class="controls">
-      <label>粒子颜色<input id="color" type="color" value="#79e8ff" aria-label="粒子颜色"></label>
+      <label>粒子颜色<input id="color" type="color" value="#65ef9a" aria-label="粒子颜色"></label>
       <label>粒子尺寸<input id="size" type="range" min="1" max="7" step=".1" value="2.3" aria-label="粒子尺寸"></label>
       <label>基础缩放<input id="spread" type="range" min=".5" max="2.5" step=".01" value="1" aria-label="基础缩放"></label>
       <label>动态强度<input id="energy" type="range" min=".2" max="2" step=".01" value="1" aria-label="动态强度"></label>
@@ -108,15 +109,23 @@
     const positions = new Float32Array(N*3), target = new Float32Array(N*3), base = new Float32Array(N*3), phase = new Float32Array(N), seeds = new Float32Array(N);
     for(let i=0;i<N;i++){ phase[i]=Math.random()*Math.PI*2; seeds[i]=Math.random(); }
     const geo = new THREE.BufferGeometry(); geo.setAttribute('position', new THREE.BufferAttribute(positions,3));
-    const material = new THREE.ShaderMaterial({ transparent:true, depthWrite:false, blending:THREE.AdditiveBlending, uniforms:{uColor:{value:new THREE.Color('#79e8ff')},uSize:{value:2.3},uTime:{value:0},uEnergy:{value:1}}, vertexShader:`attribute float a; uniform float uSize,uTime,uEnergy; varying float vA; void main(){ vec3 p=position; float w=sin(uTime*.9+a*13.)*.035*uEnergy; p+=normalize(p+vec3(.01))*w; vec4 mv=modelViewMatrix*vec4(p,1.); gl_PointSize=uSize*(105./-mv.z); gl_Position=projectionMatrix*mv; vA=.45+fract(a*37.)*.55; }`, fragmentShader:`uniform vec3 uColor; varying float vA; void main(){ float d=length(gl_PointCoord-.5); float a=smoothstep(.5,.02,d)*vA; gl_FragColor=vec4(uColor,a); }` });
+    const material = new THREE.ShaderMaterial({ transparent:true, depthWrite:false, blending:THREE.AdditiveBlending, uniforms:{uColor:{value:new THREE.Color('#65ef9a')},uSize:{value:2.3},uTime:{value:0},uEnergy:{value:1}}, vertexShader:`attribute float a; uniform float uSize,uTime,uEnergy; varying float vA; void main(){ vec3 p=position; float w=sin(uTime*.9+a*13.)*.035*uEnergy; p+=normalize(p+vec3(.01))*w; vec4 mv=modelViewMatrix*vec4(p,1.); gl_PointSize=uSize*(105./-mv.z); gl_Position=projectionMatrix*mv; vA=.45+fract(a*37.)*.55; }`, fragmentShader:`uniform vec3 uColor; varying float vA; void main(){ float d=length(gl_PointCoord-.5); float a=smoothstep(.5,.02,d)*vA; gl_FragColor=vec4(uColor,a); }` });
     geo.setAttribute('a', new THREE.BufferAttribute(seeds,1)); const particles = new THREE.Points(geo,material); group.add(particles);
-    const state = { shape:'heart', spread:1, gestureSpread:1, pinch:1, rotate:0, depth:0, energy:1, mouse:false, mx:0, my:0, hasHand:false, lastX:.5 };
+    const state = { shape:'tree', spread:1, gestureSpread:1, pinch:1, rotate:0, depth:0, energy:1, mouse:false, mx:0, my:0, hasHand:false, lastX:.5 };
     const V = (x,y,z,i) => { target[i*3]=x; target[i*3+1]=y; target[i*3+2]=z; };
     const jitter = () => (Math.random()-.5)*.24;
     function build(shape){
       for(let i=0;i<N;i++){
         const r=Math.sqrt(Math.random()), a=Math.random()*Math.PI*2, q=seeds[i], j=jitter(); let x,y,z;
-        if(shape==='heart'){ const t=a; x=3.7*Math.pow(Math.sin(t),3)*r; y=(2.9*Math.cos(t)-1.25*Math.cos(2*t)-.55*Math.cos(3*t)-.25*Math.cos(4*t))*r+.25; z=j*2.1; }
+        if(shape==='tree'){
+          // A layered evergreen with a trunk, garland rings, ornaments, and a five-point star.
+          if(q<.085){ x=(Math.random()-.5)*.7; y=-4.35+Math.random()*1.25; z=(Math.random()-.5)*.7; }
+          else if(q>.965){ const t=a, starR=.72*(.55+.45*r), star=(Math.floor(t/(Math.PI/5))%2===0)?starR:starR*.42; x=Math.cos(t)*star; y=3.05+Math.sin(t)*star; z=j*.55; }
+          else if(q>.88 && q<.925){ const tier=Math.floor(Math.random()*6), yy=-3.45+tier*.91+(Math.random()-.5)*.12, rad=(1-(yy+3.45)/6.2)*3.15+.12; x=rad*Math.cos(a); y=yy; z=rad*Math.sin(a); }
+          else if(q>.925 && q<.965){ const tier=Math.floor(Math.random()*6), yy=-3.45+tier*.91+(Math.random()-.5)*.22, rad=(1-(yy+3.45)/6.2)*3.15+.08, orb=.22+Math.random()*.18; x=rad*Math.cos(a)+j*orb; y=yy+j*orb; z=rad*Math.sin(a)+j*orb; }
+          else { const yy=-3.65+Math.random()*5.85, maxR=Math.max(.18,(1-(yy+3.65)/6.15)*3.45), rr=Math.pow(Math.random(),.48)*maxR; x=rr*Math.cos(a); y=yy+(Math.random()-.5)*.46; z=rr*Math.sin(a); }
+        }
+        else if(shape==='heart'){ const t=a; x=3.7*Math.pow(Math.sin(t),3)*r; y=(2.9*Math.cos(t)-1.25*Math.cos(2*t)-.55*Math.cos(3*t)-.25*Math.cos(4*t))*r+.25; z=j*2.1; }
         else if(shape==='flower'||shape==='cereus'){ const petals=shape==='cereus'?9:6, rr=shape==='cereus'?(1.2+2.7*Math.pow(Math.abs(Math.sin(petals*a/2)),.45))*r:(1+3*Math.abs(Math.cos(petals*a/2))*r); x=rr*Math.cos(a); y=rr*Math.sin(a); z=(shape==='cereus'?Math.sin(a*petals)*.75:Math.cos(a*petals)*.42)*(1-r)+j; }
         else if(shape==='saturn'){ if(q<.62){ const u=Math.random()*2-1, th=a, sr=Math.sqrt(1-u*u)*2.1; x=sr*Math.cos(th);y=u*2.1;z=sr*Math.sin(th); }else{ const rr=2.9+Math.random()*1.8; x=rr*Math.cos(a);y=j*.75;z=rr*Math.sin(a); } }
         else if(shape==='fireworks'){ const burst=Math.floor(q*9), ba=burst/9*Math.PI*2; const el=(burst%3-1)*.7, rr=Math.pow(Math.random(),.42)*4.6; x=Math.cos(ba)*rr+j; y=Math.sin(ba)*rr+el+j; z=(Math.random()-.5)*rr*.7; }
@@ -127,7 +136,7 @@
       }
       base.set(target);
     }
-    build('heart');
+    build('tree');
     function selectShape(name){ state.shape=name; build(name); document.querySelectorAll('.model').forEach(b=>b.classList.toggle('active',b.dataset.shape===name)); }
     document.getElementById('models').addEventListener('click', e=>{const b=e.target.closest('.model');if(b)selectShape(b.dataset.shape)});
     document.getElementById('color').addEventListener('input', e=>material.uniforms.uColor.value.set(e.target.value));
